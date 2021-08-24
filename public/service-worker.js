@@ -1,64 +1,71 @@
-
+const CACHE_NAME = "static-cache-budget";
+const DATA_CACHE_NAME = "data-cache-budget";
 
 const FILES_TO_CACHE = [
     '/',
     '/index.html',
     '/db.js',
     '/index.js',
+    'chart.js',
     '/icons/icon-192x192.png',
     '/icons/icon-512x512.png',
     '/styles.css',
-    "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
-    "https://cdn.jsdelivr.net/npm/chart.js@2.8.0",
   ];
   
-  const PRECACHE = 'precache-v1';
-  const RUNTIME = 'runtime';
-  
-  self.addEventListener('install', (event) => {
+  self.addEventListener("install", function(event) {
     event.waitUntil(
-      caches
-        .open(PRECACHE)
-        .then((cache) => cache.addAll(FILES_TO_CACHE))
-        .then(self.skipWaiting())
+        caches.open(DATA_CACHE_NAME).then((cache) => cache.add("/api/transaction"))
     );
-  });
-  
-  self.addEventListener('activate', (event) => {
-    const currentCaches = [PRECACHE, RUNTIME];
     event.waitUntil(
-      caches
-        .keys()
-        .then((cacheNames) => {
-          return cacheNames.filter((cacheName) => !currentCaches.includes(cacheName));
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.addAll(FILES_TO_CACHE);
         })
-        .then((cachesToDelete) => {
-          return Promise.all(
-            cachesToDelete.map((cacheToDelete) => {
-              return caches.delete(cacheToDelete);
-            })
-          );
-        })
-        .then(() => self.clients.claim())
     );
-  });
-  
-  self.addEventListener('fetch', (event) => {
-    if (event.request.url.startsWith(self.location.origin)) {
-      event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-  
-          return caches.open(RUNTIME).then((cache) => {
-            return fetch(event.request).then((response) => {
-              return cache.put(event.request, response.clone()).then(() => {
-                return response;
-              });
-            });
-          });
+    self.skipWaiting();
+});
+
+
+self.addEventListener("activate", function(event) {
+    event.waitUntil(
+        caches.keys().then(keyList => {
+            return Promise.all(
+                keyList.map(key => {
+                    if (key !== CACHE_NAME && key !== DATA_CACHE_NAME) {
+                        console.log("Removing old cache data", key);
+                        return caches.delete(key);
+                    }
+                })
+            );
         })
-      );
+    );
+    self.clients.claim();
+});
+
+
+self.addEventListener("fetch", function(event) {
+    if (event.request.url.includes("/api/")) {
+        event.respondWith(
+            caches.open(DATA_CACHE_NAME).then(cache => {
+            return fetch(event.request)
+                .then(response => {
+                    if (response.status === 200) {
+                        cache.put(event.request.url, response.clone());
+                    }
+                    return response;
+                })
+                .catch(err => {
+                    return cache.match(event.request);
+                });
+            }).catch(err => console.log(err))
+        );
+        return;
     }
-  });
+    
+    event.respondWith(
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.match(event.request).then(response => {
+                return response || fetch(event.request);
+            });
+        })
+    );
+});
